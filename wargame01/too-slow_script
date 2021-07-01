@@ -1,0 +1,68 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# This exploit template was generated via:
+# $ pwn template
+from pwn import *
+
+# Set up pwntools for the correct architecture
+context.update(arch='i386')
+exe = './too-slow'
+
+PROGNAME = exe
+REMOTE = "comp6447.wtf"
+REMOTEPORT = 28958
+global p
+global e
+global global_timeout
+
+e = ELF(PROGNAME)
+
+# Many built-in settings can be controlled on the command-line and show up
+# in "args".  For example, to dump all data sent/received, and disable ASLR
+# for all created processes...
+# ./exploit.py DEBUG NOASLR
+
+
+def start(argv=[], *a, **kw):
+    '''Start the exploit against the target.'''
+    if args.GDB:
+        return gdb.debug([exe] + argv, gdbscript=gdbscript, *a, **kw)
+    else:
+        return process([exe] + argv, *a, **kw)
+
+# Specify your GDB script here for debugging
+# GDB will be launched if the exploit is run via e.g.
+# ./exploit.py GDB
+gdbscript = '''
+continue
+'''.format(**locals())
+
+if args.REMOTE:
+    global_timeout = 3
+    p = remote(REMOTE, REMOTEPORT)
+else:
+    global_timeout = 0.5
+    p = process(PROGNAME)
+    p = start()
+#===========================================================
+#                    EXPLOIT GOES HERE
+#===========================================================
+x = 0
+#Solve the following math problems before time runs out! (random)
+p.recvuntil(b'out!\n', drop=True)
+while x <= 9:
+    math_prob = p.recvuntil(b' = ', drop=True)
+    word_array = math_prob.split()
+    num1 = int(word_array[0])
+    num2 = int(word_array[2])
+    solution = num1+num2
+    log.info(f'num1 = {num1}, num2 = {num2}, sol = {solution}')
+
+    p.sendline(str(solution))
+    #Correct Answer!
+    p.recvuntil(b'Answer!', drop=True)
+    x += 1
+
+
+p.interactive()
+
