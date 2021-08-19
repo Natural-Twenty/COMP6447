@@ -58,8 +58,7 @@ xor ecx, ecx
 mul ecx
 
 mov eax, 0xb
-push 0x68
-push 0x732f2f2f
+push 0x68732f2f
 push 0x6e69622f
 mov ebx, esp
 int 0x80

